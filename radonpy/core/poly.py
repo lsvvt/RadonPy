@@ -18,6 +18,17 @@ from rdkit import Geometry as Geom
 from rdkit import RDLogger
 from . import calc, const, utils
 
+
+from openff.toolkit import ForceField, Molecule
+from openff.interchange import Interchange
+from openff.units import Quantity
+
+from openmm import LangevinMiddleIntegrator, unit, Platform, MonteCarloBarostat, Vec3, MonteCarloAnisotropicBarostat
+from openmm.app import Simulation, StateDataReporter, PDBReporter, HBonds
+
+ff_openff = ForceField("openff-2.1.1.offxml")
+
+
 __version__ = '0.2.9'
 
 MD_avail = True
@@ -637,6 +648,41 @@ def polymerize_rw(mol, n, headhead=False, confId=0, tacticity='atactic', atac_ra
                 poly, _ = md.quick_rw(poly, work_dir=work_dir, omp=omp, mpi=mpi, gpu=gpu)
             elif opt == 'rdkit':
                 AllChem.MMFFOptimizeMolecule(poly, maxIters=50, confId=0)
+
+            elif opt == 'openmm':
+                molecule_openff = Molecule.from_rdkit(poly)
+                molecule_openff.partial_charges = Quantity(np.array([atom.GetDoubleProp('AtomicCharges') for atom in poly.GetAtoms()]), units="elementary_charge")
+                interchange = Interchange.from_smirnoff(ff_openff, [molecule_openff], charge_from_molecules=[molecule_openff], allow_nonintegral_charges=True)
+
+
+                simulation = interchange.to_openmm_simulation(
+                    integrator=LangevinMiddleIntegrator(
+                        293.15 * unit.kelvin,
+                        1.0 / unit.picosecond,
+                        2.0 * unit.femtosecond,
+                    ),
+                    combine_nonbonded_forces=False,
+                    platform = Platform.getPlatformByName('CUDA'),
+                    platformProperties = {
+                        "Precision": "mixed",
+                        "DeviceIndex": "0"
+                    }
+                )
+
+
+                simulation.minimizeEnergy(maxIterations=50) #  tolerance=0.1*unit.kilojoule/(unit.nanometer * unit.mole)
+                poly.RemoveAllConformers()
+                coords = simulation.context.getState(getPositions=True).getPositions(asNumpy=True)
+                coords_ang = coords.value_in_unit(unit.angstrom)
+
+                new_conformer = Chem.Conformer(poly.GetNumAtoms())
+                for i in range(poly.GetNumAtoms()):
+                    x, y, z = coords_ang[i]
+                    new_conformer.SetAtomPosition(i, (x, y, z))
+
+                poly.RemoveAllConformers()
+                poly.AddConformer(new_conformer, assignId=True)
+                print(f'Current length: {poly.GetNumAtoms()} atoms')
 
             if i == 0: break
 
