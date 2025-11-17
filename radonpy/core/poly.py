@@ -646,8 +646,8 @@ def polymerize_rw(mol, n, headhead=False, confId=0, tacticity='atactic', atac_ra
             if opt == 'lammps' and MD_avail:
                 ff.ff_assign(poly)
                 poly, _ = md.quick_rw(poly, work_dir=work_dir, omp=omp, mpi=mpi, gpu=gpu)
-            elif opt == 'rdkit':
-                AllChem.MMFFOptimizeMolecule(poly, maxIters=50, confId=0)
+            # elif opt == 'rdkit':
+            #     AllChem.MMFFOptimizeMolecule(poly, maxIters=50, confId=0)
 
             elif opt == 'openmm':
                 molecule_openff = Molecule.from_rdkit(poly)
